@@ -10,12 +10,21 @@ android {
     namespace = "me.wjz.nekocrypt"
     compileSdk = 35
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../nekocrypt.jks")
+            storePassword = "NekoCryptTSS"
+            keyAlias = "nekocrypt"
+            keyPassword = "NekoCryptTSS"
+        }
+    }
+
     defaultConfig {
         applicationId = "me.wjz.nekocrypt"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13    // 唯一版本识别码，每次打包记得+1！！
-        versionName = "1.4.0"
+        versionCode = 14    // 唯一版本识别码，每次打包记得+1！！
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -24,6 +33,7 @@ android {
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true  //开启代码压缩、混淆、优化
             isShrinkResources = true    //删除代码中没有用到的资源
             // ✨ 指定混淆规则文件

@@ -82,6 +82,9 @@ import me.wjz.nekocrypt.util.CryptoDownloader
 import me.wjz.nekocrypt.util.CryptoManager
 import me.wjz.nekocrypt.util.CryptoManager.applyCiphertextStyle
 import me.wjz.nekocrypt.util.CryptoManager.containsCiphertext
+import me.wjz.nekocrypt.util.CryptoManager.decodeMorse
+import me.wjz.nekocrypt.util.CryptoManager.encodeMorse
+import me.wjz.nekocrypt.util.CryptoManager.isMorseCode
 import me.wjz.nekocrypt.util.NCFileProtocol
 import me.wjz.nekocrypt.util.getCacheFileFor
 import me.wjz.nekocrypt.util.getUriForFile
@@ -117,10 +120,10 @@ fun CryptoScreen(modifier: Modifier = Modifier) {
     var isImageSavedThisTime by remember { mutableStateOf(false) }
 
     //自动加解密
-    LaunchedEffect(inputText, secretKey) {
+    LaunchedEffect(inputText, secretKey, ciphertextStyleType) {
         if (inputText.isEmpty()) {
             outputText = ""
-            fileInfoToShow = null // 清空文件信息
+            fileInfoToShow = null
             charCount = 0
             elapsedTime = 0L
             return@LaunchedEffect
@@ -128,26 +131,32 @@ fun CryptoScreen(modifier: Modifier = Modifier) {
 
         val startTime = System.currentTimeMillis()
         var ciphertextCharCount = 0
+        val currentStyleType = CiphertextStyleType.fromName(ciphertextStyleType)
 
-        // 先判断是不是密文
-        if (inputText.containsCiphertext()) {
+        // 1. 先检测是否是摩斯码格式
+        if (inputText.isMorseCode()) {
+            isEncryptMode = false
+            ciphertextCharCount = inputText.length
+            val decryptedText = inputText.decodeMorse()
+            fileInfoToShow = null
+            isDecryptFailed = decryptedText == null
+            outputText = decryptedText ?: decryptFailed
+        }
+        // 2. 检测是否是AES隐形字符密文
+        else if (inputText.containsCiphertext()) {
             isEncryptMode = false
             ciphertextCharCount = inputText.length
             var decryptedText:String? = null
-            //  执行解密
             for( key in secretKeyList){
                 decryptedText = CryptoManager.decrypt(inputText, key)
                 if(decryptedText!=null) break
             }
 
-            // 再判断解密后的内容是不是文件协议
             val fileInfo = decryptedText?.let { NCFileProtocol.fromString(it) }
 
             if (fileInfo != null) {
-                // --- 是文件！准备显示弹窗 ---
-                outputText = "" // 清空普通文本输出
+                outputText = ""
                 isDecryptFailed = false
-                // 检查文件是否已缓存
                 val targetFile = getCacheFileFor(context, fileInfo)
                 if (targetFile.exists() && targetFile.length() == fileInfo.size) {
                     downloadedFileUri = getUriForFile(context, targetFile)
@@ -156,19 +165,25 @@ fun CryptoScreen(modifier: Modifier = Modifier) {
                     downloadedFileUri = null
                     downloadProgress = null
                 }
-                isImageSavedThisTime = false // 重置保存状态
-                fileInfoToShow = fileInfo // ✨ 触发弹窗显示！
+                isImageSavedThisTime = false
+                fileInfoToShow = fileInfo
             } else {
-                // --- 是普通文本 ---
-                fileInfoToShow = null // 确保文件弹窗不显示
+                fileInfoToShow = null
                 isDecryptFailed = decryptedText == null
                 outputText = decryptedText ?: decryptFailed
             }
         } else {
-            // --- 是原文，执行加密 ---
+            // 3. 执行加密
             isEncryptMode = true
             fileInfoToShow = null
-            val ciphertext = CryptoManager.encrypt(inputText, secretKey).applyCiphertextStyle()
+
+            val ciphertext = if (currentStyleType.isDirectEncoding) {
+                // 摩斯语：直接编码，不经过AES
+                inputText.encodeMorse()
+            } else {
+                // 其他风格：AES加密 + 风格装饰
+                CryptoManager.encrypt(inputText, secretKey).applyCiphertextStyle()
+            }
             ciphertextCharCount = ciphertext.length
             outputText = ciphertext
         }

@@ -41,6 +41,10 @@ import me.wjz.nekocrypt.ui.dialog.SendAttachmentDialog
 import me.wjz.nekocrypt.util.CryptoManager
 import me.wjz.nekocrypt.util.CryptoManager.applyCiphertextStyle
 import me.wjz.nekocrypt.util.CryptoManager.containsCiphertext
+import me.wjz.nekocrypt.util.CryptoManager.decodeMorse
+import me.wjz.nekocrypt.util.CryptoManager.encodeMorse
+import me.wjz.nekocrypt.util.CryptoManager.isMorseCode
+import me.wjz.nekocrypt.util.CiphertextStyleType
 import me.wjz.nekocrypt.util.CryptoUploader
 import me.wjz.nekocrypt.util.NCFileProtocol
 import me.wjz.nekocrypt.util.NCWindowManager
@@ -502,19 +506,24 @@ abstract class BaseChatAppHandler : ChatAppHandler {
     protected fun doEncryptAndClick() {
         runCatching {
             val currentService = service ?: return
-            // ✨ 使用一个单独的协程来准备加密文本，避免阻塞
-            // 1. 查找输入框以获取原始文本
             val root = if (service!!.rootInActiveWindow.isEmpty()) getActiveWindowRoot()
             else currentService.rootInActiveWindow
 
             val inputNode = findSingleNode(root!!,inputId,Constant.EDIT_TEXT)
             val originalText = inputNode?.text?.toString()
 
-            // 2. 加密文本
-            val encryptedText =if(originalText!!.containsCiphertext()) originalText else
+            // 根据当前密文风格选择加密方式
+            val currentStyleType = CiphertextStyleType.fromName(CryptoManager.ciphertextStyleType)
+            val encryptedText = if (originalText!!.containsCiphertext() || originalText.isMorseCode()) {
+                originalText
+            } else if (currentStyleType.isDirectEncoding) {
+                // 摩斯语：直接编码，不经过AES
+                originalText.encodeMorse()
+            } else {
+                // 其他风格：AES加密 + 风格装饰
                 CryptoManager.encrypt(originalText, currentService.currentKey).applyCiphertextStyle()
+            }
 
-            // 3. 调用核心发送函数
             setTextAndSend(encryptedText)
         }.onFailure { exception -> Log.e(tag,"doEncryptAndClick Error${exception.message}") }
     }
@@ -856,31 +865,36 @@ abstract class BaseChatAppHandler : ChatAppHandler {
     }
 
     /**
-     * ✨ 核心的“解密引擎”函数
-     * 它的职责单一，就是尝试解密一段文本。
-     * @param textToDecrypt 可能包含密文的原始字符串。
-     * @return 如果解密成功，返回明文字符串；否则返回null。
+     * 核心的"解密引擎"函数
+     * 尝试解密一段文本，支持摩斯码和AES两种格式
      */
     private fun tryDecryptingText(textToDecrypt: String?): String? {
         if(textToDecrypt == null)return null
         val currentService = service ?: return null
-        // 1. 先判断是否真的包含“猫语”，避免不必要的计算
+
+        // 1. 先检测是否是摩斯码格式
+        if (textToDecrypt.isMorseCode()) {
+            Log.d(tag, "检测到摩斯码: $textToDecrypt")
+            val decrypted = textToDecrypt.decodeMorse()
+            if (decrypted != null) {
+                Log.d(tag, "摩斯码解密成功 -> $decrypted")
+                return decrypted
+            }
+        }
+
+        // 2. 再检测AES隐形字符密文
         if (!textToDecrypt.containsCiphertext()) {
             return null
         }
-        Log.d(tag, "检测到密文: $textToDecrypt")
-        // 2. 尝试用所有密钥进行解密
+        Log.d(tag, "检测到AES密文: $textToDecrypt")
         Log.d(tag, "目前的全部密钥${currentService.cryptoKeys.joinToString()}")
-        // 2. 遍历所有密钥进行尝试
         for (key in currentService.cryptoKeys) {
             val decryptedText = CryptoManager.decrypt(textToDecrypt, key)
             if (decryptedText != null) {
-                // 3. 只要有一个成功，就立刻返回结果
-                Log.d(tag, "解密成功 -> $decryptedText")
+                Log.d(tag, "AES解密成功 -> $decryptedText")
                 return decryptedText
             }
         }
-        // 4. 如果所有密钥都失败了，返回null
         return null
     }
 

@@ -231,10 +231,53 @@ object CryptoManager {
         }
     }
 
+    // -----------------摩斯码编解码方法---------------------
+
     /**
-     * ✨ 全新：根据用户设置，为密文应用伪装文本样式。
-     *
-     * @return 伪装后的、包含随机语言和真实密文的最终字符串。
+     * 将文本编码为摩斯码格式
+     * 每个字符转为 Unicode 码点的二进制，划（-）代表1，点（.）代表0
+     */
+    fun String.encodeMorse(): String {
+        if (this.isEmpty()) return ""
+        return this.map { char ->
+            val codePoint = char.code
+            val binary = codePoint.toString(2)
+            binary.map { if (it == '1') '-' else '.' }.joinToString("")
+        }.joinToString(" ")
+    }
+
+    /**
+     * 将摩斯码解码为原文
+     */
+    fun String.decodeMorse(): String? {
+        if (this.isBlank()) return null
+        return try {
+            this.split(" ")
+                .filter { it.isNotEmpty() }
+                .map { charCode ->
+                    val binary = charCode.map { if (it == '-') '1' else '0' }.joinToString("")
+                    binary.toInt(2).toChar()
+                }
+                .joinToString("")
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * 检测文本是否为摩斯码格式
+     */
+    fun String.isMorseCode(): Boolean {
+        if (this.isBlank()) return false
+        val trimmed = this.trim()
+        val hasMorseChars = trimmed.contains('.') || trimmed.contains('-')
+        val onlyMorseChars = trimmed.all { it == '.' || it == '-' || it == ' ' }
+        val hasValidGroups = trimmed.split(" ").any { it.isNotEmpty() && it.all { c -> c == '.' || c == '-' } }
+        return hasMorseChars && onlyMorseChars && hasValidGroups
+    }
+
+    /**
+     * 根据用户设置，为密文应用伪装文本样式。
      */
     fun String.applyCiphertextStyle(): String {
         // 拿到对应枚举类
@@ -260,7 +303,7 @@ object CryptoManager {
 
 }
 
-enum class CiphertextStyleType(val displayNameResId:Int,val content:List<String>){
+enum class CiphertextStyleType(val displayNameResId: Int, val content: List<String>, val isDirectEncoding: Boolean = false) {
     NEKO(
         displayNameResId = R.string.cipher_style_neko,  // 猫娘语
         content = listOf("嗷呜!", "咕噜~", "喵~", "喵咕~", "喵喵~", "喵?", "喵喵！", "哈！", "喵呜...", "咪咪喵！", "咕咪?")
@@ -285,6 +328,11 @@ enum class CiphertextStyleType(val displayNameResId:Int,val content:List<String>
     MANBO(
         displayNameResId = R.string.cipher_style_manbo, //  曼波！
         content = listOf("曼波~","哈吉米~","哈吉米咩那咩路多~","曼波!","曼波...","欧码叽哩，曼波！","叮咚鸡！","哈压库！","哈压库~","哈吉米！","哦耶~","duang~")
+    ),
+    MORSE(
+        displayNameResId = R.string.cipher_style_morse, // 摩斯语
+        content = emptyList(),
+        isDirectEncoding = true // 特殊标记：直接编码，不经过AES加密
     );
     companion object{
         //  辅助函数
