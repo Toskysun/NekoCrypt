@@ -62,6 +62,12 @@ class MyAccessibilityService : AccessibilityService() {
     // 添加保活服务状态标记
     private var isKeepAliveServiceStarted = false
 
+    // 标记服务是否已连接（TYPE_ACCESSIBILITY_OVERLAY需要服务已连接才能使用）
+    private var isServiceConnected = false
+
+    // 缓存待执行的scanner显示请求
+    private var pendingShowScanner = false
+
     // 获取App里注册的dataManager实例
     private val dataStoreManager by lazy {
         (application as NekoCryptApp).dataStoreManager
@@ -142,9 +148,15 @@ class MyAccessibilityService : AccessibilityService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when(intent?.action){
             ACTION_SHOW_SCANNER ->{
-                showScanner()
+                // 服务未连接时缓存请求，等连接后再执行
+                if (isServiceConnected) {
+                    showScanner()
+                } else {
+                    pendingShowScanner = true
+                }
             }
             ACTION_HIDE_SCANNER ->{
+                pendingShowScanner = false
                 hideScanner()
             }
         }
@@ -153,18 +165,26 @@ class MyAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        isServiceConnected = true
         Log.d(tag, "无障碍服务已连接！")
         // startPeriodicScreenScan()// 做debug扫描
         // 🎯 关键：启动保活服务
         startKeepAliveService()
         observeAppSettings()
         showScannerIfNeed()
+        // 处理缓存的scanner显示请求
+        if (pendingShowScanner) {
+            pendingShowScanner = false
+            showScanner()
+        }
     }
 
     // 重写 onDestroy 方法，这是服务生命周期结束时最后的清理机会
     override fun onDestroy() {
         super.onDestroy()
         Log.d(tag, "无障碍服务正在销毁...")
+        isServiceConnected = false
+        pendingShowScanner = false
         // 取消协程作用域，释放所有运行中的协程，防止内存泄漏
         serviceScope.cancel()
         // 停止保活服务
